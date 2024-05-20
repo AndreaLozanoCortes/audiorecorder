@@ -1,0 +1,243 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Audio Recorder</title>
+    <script src="https://ajax.googleapis.com/ajax/libs/jquery/3.5.1/jquery.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/recordrtc"></script>
+    <script src="https://cdn.jsdelivr.net/npm/tesseract.js@2"></script>
+     <!-- Añadiendo CropperJS para seleccionar áreas de la imagen -->
+     <script src="https://unpkg.com/cropperjs"></script>
+     <link rel="stylesheet" href="https://unpkg.com/cropperjs/dist/cropper.css"/>
+</head>
+<body>
+    <h1>Reporte de Edificio Administrativo</h1>
+    <form method="post" enctype="text/plain">
+      {% csrf_token %}
+
+      <h3>Al iniciar la grabación, mencione los siguientes puntos:</h3>
+      <ul>
+        <li> Su nombre</li>
+        <li> A quién desea dirigirse</li>
+        <li> En qué depto. se encuentra la persona que desea dirigirse</li>
+        <li> Motivo de su visita</li>
+      </ul>
+      <br>
+      <input type="hidden" id="audio_data" name="audio_file" />
+   
+      <button type="button" id="start_recording">Iniciar Grabación</button>
+      <button type="button" id="stop_recording" disabled>Detener Grabación</button>
+      <button type="button" id="save_recording" disabled>Guardar Grabación</button>
+      <br>
+      <br>
+       <!-- Agregar un área para cargar y procesar la imagen -->
+      <input type="file" id="image_input" accept="image/*">
+      <br>
+      <div style="width: 30%; height: 400px;">
+        <br>
+        <canvas id="image_canvas"></canvas>
+      </div>
+      <br><br>
+      <button type="button" id="process_image">Procesar Imagen</button>
+      <br>
+      <br>
+      <!-- Agregar un área para mostrar el texto transcrito -->
+      <h3>Transcripción:</h3>
+      <textarea id="transcript" style="width: 100%; height: 300px;" disabled></textarea>
+    </form>
+    <br>
+    <br>
+    <audio controls id="audio_player" style="display: none"></audio>
+    <br>
+    <br>
+    <h3>Audios Guardados</h3>
+    <ul>
+      {% for recording in recordings %}
+      {% endfor %}
+    </ul>
+    {% for recording in recordings %}
+    
+    <audio controls>
+      <source src="{% url 'download_audio' recording.id %}" type="audio/mpeg" />
+      <br>
+      Your browser does not support the audio element.
+    </audio>
+    
+    {% endfor %}
+    <script>
+      
+       function getCookie(name) {
+        let cookieValue = null;
+        if (document.cookie && document.cookie !== "") {
+          const cookies = document.cookie.split(";");
+          for (let i = 0; i < cookies.length; i++) {
+            const cookie = cookies[i].trim();
+            // Busca el nombre del token CSRF en el formato 'csrftoken=...'
+            if (cookie.startsWith(name + "=")) {
+              cookieValue = decodeURIComponent(
+                cookie.substring(name.length + 1)
+              );
+              break;
+            }
+          }
+        }
+        return cookieValue;
+      }
+
+      // Configuración de la solicitud AJAX para enviar el token CSRF
+      $.ajaxSetup({
+        beforeSend: function (xhr, settings) {
+          // Agrega el token CSRF al encabezado de la solicitud
+          if (
+            !/^(GET|HEAD|OPTIONS|TRACE)$/i.test(settings.type) &&
+            !this.crossDomain
+          ) {
+            xhr.setRequestHeader("X-CSRFToken", getCookie("csrftoken"));
+          }
+        },
+      });
+
+
+      let recorder;
+      let recognition, chunks = [];
+      let transcriptArea = document.getElementById('transcript');
+      let cropper;
+
+      //--------------------------------------PROCESAR IMAGEN
+      $(document).ready(function () {
+      let cropper;
+
+    // Manejo de la carga de la imagen
+      $("#image_input").change(function (e) {
+          const reader = new FileReader();
+          reader.onload = function (e) {
+              const image = new Image();
+              image.onload = function () {
+                  const canvas = document.getElementById('image_canvas');
+                  const ctx = canvas.getContext('2d');
+                  canvas.width = image.width;
+                  canvas.height = image.height;
+                  ctx.drawImage(image, 0, 0, image.width, image.height);
+                  // Inicializa el cropper en el canvas
+                  if (cropper) {
+                      cropper.replace(image.src);
+                  } else {
+                      cropper = new Cropper(canvas, {
+                          aspectRatio: NaN // Permite cualquier relación de aspecto
+                      });
+                  }
+              };
+              image.src = e.target.result;
+          };
+          reader.readAsDataURL(this.files[0]);
+      });
+
+        // Procesamiento de la imagen para extraer texto
+        $("#process_image").click(function () {
+            if (cropper && cropper.getCroppedCanvas()) {
+                cropper.getCroppedCanvas({
+                    width: 256, // Asegúrate de que la imagen tenga suficiente resolución
+                    height: 256
+                }).toBlob(blob => {
+                    if (blob) {
+                        // Convierte el blob a URL para procesamiento
+                        const blobUrl = URL.createObjectURL(blob);
+                        Tesseract.recognize(
+                            blobUrl, // Usa URL del blob para reconocimiento
+                            'spa', // Asumiendo que el idioma de la imagen es español
+                            { logger: m => console.log(m) }
+                        ).then(({ data: { text } }) => {
+                            $("#transcript").val(text);
+                            URL.revokeObjectURL(blobUrl); // Libera la URL creada
+                        }).catch(err => {
+                            console.error('Error al procesar la imagen:', err);
+                        });
+                    } else {
+                        console.error('No se pudo crear el blob desde el área seleccionada.');
+                    }
+                });
+            }
+        });
+      });
+
+
+      //------------------------------------------------------------
+
+      //--------------------------------------TRANSCRIPCIÓN DE AUDIO
+      if ('webkitSpeechRecognition' in window) {
+        recognition = new webkitSpeechRecognition();
+        recognition.lang = 'es-ES';
+        recognition.continuous = true;
+        recognition.interimResults = true;
+    
+        recognition.onresult = function(event) {
+            for (let i = event.resultIndex; i < event.results.length; ++i) {
+                if (event.results[i].isFinal) {
+                    transcriptArea.value += event.results[i][0].transcript + ' '; // Concatena texto nuevo
+                }
+            }
+        };
+      }
+      //---------------------------------------------------------------
+
+      $("#start_recording").click(function () {
+        transcriptArea.value = ''; // Limpiar área de transcripción al iniciar una nueva grabación
+        navigator.mediaDevices.getUserMedia({ audio: true })
+          .then(function (stream) {
+            recorder = new RecordRTC(stream, { type: "audio" });
+            recorder.startRecording();
+            if (recognition) recognition.start();
+    
+            $("#start_recording").prop("disabled", true);
+            $("#stop_recording").prop("disabled", false);
+          });
+      });
+    
+      $("#stop_recording").click(function () {
+        recorder.stopRecording(function () {
+          let blob = recorder.getBlob();
+          let audioData = btoa(
+            new Uint8Array(blob).reduce(
+              (data, byte) => data + String.fromCharCode(byte),
+              ""
+            )
+          );
+          console.log(audioData);
+          $("#audio_data").val(blob);
+          $("#audio_player").attr("src", URL.createObjectURL(blob));
+          $("#audio_player").show();
+          $("#save_recording").prop("disabled", false);
+          $("#start_recording").prop("disabled", false);
+          $("#stop_recording").prop("disabled", true);
+          if (recognition) recognition.stop();
+        });
+      });
+    
+      $("#save_recording").click(function () {
+        let formData = new FormData();
+        let blob = recorder.getBlob();
+        let nombre = $("#audio_text").val();
+
+        formData.append("audio_file", blob);
+        //formData.append("name", nombre);
+
+        $.ajax({
+          url: "{% url 'save_audio' %}",
+          type: "POST",
+          data: formData,
+          processData: false,
+          contentType: false,
+          success: function (response) {
+            console.log(response);
+            window.location.reload();
+          },
+          error: function (xhr, status, error) {
+            console.error(error);
+          },
+        });
+      });
+
+      
+    </script>
+</body>
+</html>
+
