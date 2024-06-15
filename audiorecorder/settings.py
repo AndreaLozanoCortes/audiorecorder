@@ -79,8 +79,8 @@ DATABASES = {
         'ENGINE': 'django.db.backends.postgresql',
         'NAME': 'audio_db',
         'USER': 'postgres',
-        'PASSWORD': 'lozano',
-        'HOST': 'localhost',
+        'PASSWORD': 'analitica',
+        'HOST': '172.16.2.230',
         'PORT': '5432',
     }
 }
