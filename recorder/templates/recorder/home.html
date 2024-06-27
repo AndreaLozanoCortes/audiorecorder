@@ -11,7 +11,7 @@
 </head>
 <body>
     <h1>Reporte de Edificio Administrativo</h1>
-    <form method="post" enctype="text/plain">
+    <form method="post" enctype="multipart/form-data">
       {% csrf_token %}
 
       <h3>Al iniciar la grabación, mencione los siguientes puntos:</h3>
@@ -216,8 +216,11 @@
         let formData = new FormData();
         let blob = recorder.getBlob();
         let nombre = $("#audio_text").val();
+        let text = $("#transcript").val();
 
         formData.append("audio_file", blob);
+        formData.append("text", text);
+
         //formData.append("name", nombre);
 
         $.ajax({
